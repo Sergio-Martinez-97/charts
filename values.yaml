@@ -6,3 +6,51 @@ jaeger:
     requests:
       cpu: 50m
       memory: 100Mi
+appname: imv
+app:
+  name: taskapp
+dc:
+  env_vars:
+    enabled: false
+  
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cicd/taskapp
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: latest
+
+  replicaCount: 1
+
+  resources:
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    limits:
+      cpu: 300m
+      memory: 700Mi
+    requests:
+      cpu: 50m
+      memory: 200Mi
+
+service:
+  port: 8080
+  port_ssl: 8443
+
+configmap:
+  app:
+    enabled: true
+    mountPath: /opt/app/application.yaml
+    subPath: application.yaml
+    data:
+      application.yaml: |-
+        
+  logback:
+    enabled: false
+
+
+secret:
+  app:
+    enabled: false
+  trustore:
+    enabled: false
