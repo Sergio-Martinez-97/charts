@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.appname }}
+    component: {{ .Release.Name }}
+  name: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.dc.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.appname }}
+      component: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.appname }}
+        component: {{ .Release.Name }}
+        version:  {{ .Chart.Version }}
+      annotations:
+        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/proxyCPU: 50m
+        sidecar.istio.io/proxyMemory: 150Mi
+    spec:
+      containers:
+      - name: {{ .Release.Name }}
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8081
+            scheme: HTTP
+          initialDelaySeconds: 10
+          timeoutSeconds: 1
+          periodSeconds: 10
+          successThreshold: 1
+          failureThreshold: 5
+        startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+              scheme: HTTP
+            initialDelaySeconds: 40
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 20
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+            scheme: HTTP
+          initialDelaySeconds: 10
+          timeoutSeconds: 1
+          periodSeconds: 10
+          successThreshold: 1
+          failureThreshold: 5
+        {{- if .Values.dc.env_vars.enabled }}
+        env:
+          {{- toYaml .Values.dc.env_vars.data | nindent 8 }}
+        {{- end}}
+        image: "{{ .Values.dc.image.repository }}:{{ .Values.dc.image.tag | default .Chart.AppVersion }}"
+        
+        ports:
+        - containerPort: {{ .Values.service.port }}
+          protocol: TCP
+        - containerPort: {{ .Values.service.port_ssl }}
+          protocol: TCP
+        resources:
+          {{- toYaml .Values.dc.resources | nindent 10 }}
+        terminationMessagePath: "/dev/termination-log"
+        volumeMounts:
+          {{- if .Values.configmap.app.enabled }}
+          - mountPath: {{ .Values.configmap.app.mountPath }}
+            name: {{ .Release.Name }}-config
+            subPath: {{ .Values.configmap.app.subPath }}
+          {{- end }}
+          {{- if .Values.configmap.logback.enabled }}
+          - mountPath: {{ .Values.configmap.logback.mountPath }}
+            name: {{ .Release.Name }}-logback
+            subPath: {{ .Values.configmap.logback.subPath }}
+          {{- end }}
+          {{- if .Values.secret.trustore.enabled }}
+          - name: {{ .Values.secret.trustore.name }}
+            mountPath: {{ .Values.secret.trustore.mountPath }}
+            subPath: {{ .Values.secret.trustore.subPath }}
+          {{- end }}
+      - name: jaeger-agent
+        image: 'registry.redhat.io/distributed-tracing/jaeger-agent-rhel7:latest'
+        resources:
+          {{- toYaml .Values.jaeger.resources | nindent 10 }}
+        args:
+          - >-
+            --reporter.grpc.host-port=dns:///jaeger-collector-headless.istio-system:14250
+          - '--reporter.type=grpc'
+        ports:
+          - name: zk-compact-trft
+            containerPort: 5775
+            protocol: UDP
+          - name: config-rest
+            containerPort: 5778
+            protocol: TCP
+          - name: jg-compact-trft
+            containerPort: 6831
+            protocol: UDP
+          - name: jg-binary-trft
+            containerPort: 6832
+            protocol: UDP
+          - name: admin-http
+            containerPort: 14271
+            protocol: TCP
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        {{- if .Values.configmap.app.enabled }}
+        - name: {{ .Release.Name }}-config
+          configMap:
+            name: {{ .Release.Name }}-config
+        {{- end }}
+        {{- if .Values.configmap.logback.enabled }}
+        - name: {{ .Release.Name }}-logback
+          configMap:
+            name: {{ .Release.Name }}-logback
+        {{- end }}
+        {{- if .Values.secret.trustore.enabled }}
+        - name: {{ .Values.secret.trustore.name }}
+          secret:
+            defaultMode: 420
+            secretName: {{ .Values.secret.trustore.name }}
+        {{- end }}
